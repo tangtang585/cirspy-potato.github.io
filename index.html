@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Aim Trainer (Low Spec Edition)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: sans-serif;
+            user-select: none;
+        }
+
+        /* UI Overlay */
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #score { color: #00ffcc; }
+
+        /* Crosshair */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: #00ffcc;
+        }
+        #crosshair::before { top: 4px; left: -5px; width: 20px; height: 2px; }
+        #crosshair::after { top: -5px; left: 4px; width: 2px; height: 20px; }
+
+        /* Intro / Pause Screen */
+        #blocker {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+
+        #instructions {
+            text-align: center;
+            color: white;
+            cursor: pointer;
+            background: #222;
+            padding: 30px;
+            border-radius: 5px;
+            border: 2px solid #00ffcc;
+        }
+
+        h1 { margin-top: 0; color: #00ffcc; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="ui">Score: <span id="score">0</span></div>
+    <div id="crosshair"></div>
+
+    <div id="blocker">
+        <div id="instructions">
+            <h1>3D AIM TRAINER</h1>
+            <p style="color: #00ffcc;">[ LOW SPEC MODE ACTIVE ]</p>
+            <p>Click to start</p>
+        </div>
+    </div>
+
+    <script>
+        let scene, camera, renderer;
+        let targets = [];
+        let score = 0;
+        const maxTargets = 4;
+        
+        let yaw = 0;
+        let pitch = 0;
+        const mouseSensitivity = 0.002;
+
+        const scoreDisplay = document.getElementById('score');
+        const blocker = document.getElementById('blocker');
+        const instructions = document.getElementById('instructions');
+
+        instructions.addEventListener('click', () => {
+            document.body.requestPointerLock();
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === document.body) {
+                blocker.style.display = 'none';
+            } else {
+                blocker.style.display = 'flex';
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement !== document.body) return;
+
+            yaw -= e.movementX * mouseSensitivity;
+            pitch -= e.movementY * mouseSensitivity;
+            pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, pitch));
+
+            camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+        });
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111116);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 0);
+
+            // OPTIMIZATION: antialias set to false, precision set to mediump
+            renderer = new THREE.WebGLRenderer({ antialias: false, precision: "mediump" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            // OPTIMIZATION: Forces pixel ratio to 1 even on high-res displays to prevent lag
+            renderer.setPixelRatio(1); 
+            document.body.appendChild(renderer.domElement);
+
+            // Simple lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            dirLight.position.set(5, 10, 5);
+            scene.add(dirLight);
+
+            // OPTIMIZATION: Using MeshLambertMaterial instead of MeshStandardMaterial
+            const floorGeo = new THREE.PlaneGeometry(50, 50);
+            const floorMat = new THREE.MeshLambertMaterial({ color: 0x222225 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            const wallMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1f });
+            const frontWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 25), wallMat);
+            frontWall.position.set(0, 12.5, -20);
+            scene.add(frontWall);
+
+            for (let i = 0; i < maxTargets; i++) {
+                spawnTarget();
+            }
+
+            window.addEventListener('click', onShoot);
+            window.addEventListener('resize', onWindowResize);
+
+            animate();
+        }
+
+        function spawnTarget() {
+            const radius = 0.6 + Math.random() * 0.4;
+            
+            // OPTIMIZATION: Lowered segments from 32 to 12 to reduce polygons significantly
+            const geometry = new THREE.SphereGeometry(radius, 12, 12);
+            const material = new THREE.MeshLambertMaterial({ color: 0xff0055 });
+            const target = new THREE.Mesh(geometry, material);
+
+            const x = (Math.random() - 0.5) * 24;
+            const y = 1 + Math.random() * 7;
+            const z = -16 - Math.random() * 3;
+
+            target.position.set(x, y, z);
+            scene.add(target);
+            targets.push(target);
+        }
+
+        function onShoot() {
+            if (document.pointerLockElement !== document.body) return;
+
+            const raycaster = new THREE.Raycaster();
+            const centerScreen = new THREE.Vector2(0, 0); 
+            raycaster.setFromCamera(centerScreen, camera);
+
+            const intersects = raycaster.intersectObjects(targets);
+
+            if (intersects.length > 0) {
+                const hitTarget = intersects[0].object;
+                scene.remove(hitTarget);
+                targets = targets.filter(t => t !== hitTarget);
+
+                score += 100;
+                scoreDisplay.innerText = score;
+
+                spawnTarget();
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Kept simple target movement, minimal impact on CPU
+            const time = Date.now() * 0.003;
+            targets.forEach((target, index) => {
+                target.position.y += Math.sin(time + index) * 0.004;
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
