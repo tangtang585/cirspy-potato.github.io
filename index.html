@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Aim Trainer (Low Spec Edition)</title>
+    <title>3D Aim Trainer (Advanced Low-Spec)</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background-color: #111;
-            font-family: sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             user-select: none;
         }
 
@@ -19,13 +19,16 @@
             top: 20px;
             left: 20px;
             color: white;
-            font-size: 24px;
+            font-size: 20px;
             font-weight: bold;
             pointer-events: none;
             z-index: 10;
+            background: rgba(0,0,0,0.4);
+            padding: 10px;
+            border-radius: 5px;
         }
-
         #score { color: #00ffcc; }
+        #current-diff { color: #ff0055; }
 
         /* Crosshair */
         #crosshair {
@@ -46,12 +49,12 @@
         #crosshair::before { top: 4px; left: -5px; width: 20px; height: 2px; }
         #crosshair::after { top: -5px; left: 4px; width: 2px; height: 20px; }
 
-        /* Intro / Pause Screen */
+        /* Menu Screen */
         #blocker {
             position: absolute;
             width: 100%;
             height: 100%;
-            background-color: rgba(0,0,0,0.8);
+            background-color: rgba(0,0,0,0.85);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -61,27 +64,86 @@
         #instructions {
             text-align: center;
             color: white;
-            cursor: pointer;
-            background: #222;
-            padding: 30px;
-            border-radius: 5px;
+            background: #1a1a1f;
+            padding: 40px;
+            border-radius: 10px;
             border: 2px solid #00ffcc;
+            max-width: 400px;
         }
 
-        h1 { margin-top: 0; color: #00ffcc; }
+        h1 { margin-top: 0; color: #00ffcc; letter-spacing: 2px; }
+        
+        /* Interactive Buttons */
+        .btn {
+            background: #242629;
+            color: white;
+            border: 1px solid #444;
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: 0.2s;
+        }
+        .btn:hover {
+            background: #333;
+            border-color: #00ffcc;
+        }
+        .btn-start {
+            background: #00ffcc;
+            color: #111;
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            margin-top: 15px;
+            border: none;
+        }
+        .btn-start:hover {
+            background: #00ccaa;
+        }
+        
+        /* Active Difficulty Highlight */
+        .active-diff {
+            background: #ff0055 !important;
+            border-color: #ff0055 !important;
+            color: white !important;
+        }
+
+        .setting-section {
+            margin: 20px 0;
+            border-top: 1px solid #333;
+            padding-top: 15px;
+        }
+        label { display: block; margin-bottom: 8px; font-size: 14px; color: #aaa; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-    <div id="ui">Score: <span id="score">0</span></div>
+    <div id="ui">
+        Score: <span id="score">0</span><br>
+        Mode: <span id="current-diff">Normal</span>
+    </div>
     <div id="crosshair"></div>
 
     <div id="blocker">
         <div id="instructions">
             <h1>3D AIM TRAINER</h1>
-            <p style="color: #00ffcc;">[ LOW SPEC MODE ACTIVE ]</p>
-            <p>Click to start</p>
+            
+            <div class="setting-section">
+                <label>SELECT DIFFICULTY</label>
+                <button class="btn" id="btn-easy" onclick="setDifficulty('easy')">Easy</button>
+                <button class="btn active-diff" id="btn-normal" onclick="setDifficulty('normal')">Normal</button>
+                <button class="btn" id="btn-hard" onclick="setDifficulty('hard')">Hard</button>
+            </div>
+
+            <div class="setting-section">
+                <button class="btn" id="btn-fullscreen" onclick="toggleFullscreen()">🖥️ Toggle Fullscreen</button>
+            </div>
+
+            <button class="btn btn-start" onclick="startGame()">CLICK TO PLAY</button>
+            <p style="font-size: 12px; color: #666; margin-top: 15px;">Press ESC to pause/change settings</p>
         </div>
     </div>
 
@@ -95,13 +157,50 @@
         let pitch = 0;
         const mouseSensitivity = 0.002;
 
-        const scoreDisplay = document.getElementById('score');
-        const blocker = document.getElementById('blocker');
-        const instructions = document.getElementById('instructions');
+        // Difficulty Configurations
+        const diffSettings = {
+            easy: { sizeMin: 0.9, sizeMax: 1.3, speed: 0.002, label: 'Easy' },
+            normal: { sizeMin: 0.5, sizeMax: 0.8, speed: 0.005, label: 'Normal' },
+            hard: { sizeMin: 0.25, sizeMax: 0.4, speed: 0.012, label: 'Hard' }
+        };
+        let currentDifficulty = 'normal';
 
-        instructions.addEventListener('click', () => {
+        const scoreDisplay = document.getElementById('score');
+        const diffDisplay = document.getElementById('current-diff');
+        const blocker = document.getElementById('blocker');
+
+        // --- Difficulty Logic ---
+        function setDifficulty(mode) {
+            currentDifficulty = mode;
+            diffDisplay.innerText = diffSettings[mode].label;
+            
+            // Update UI buttons active state
+            document.querySelectorAll('.setting-section .btn').forEach(b => b.classList.remove('active-diff'));
+            document.getElementById(`btn-${mode}`).classList.add('active-diff');
+
+            // Clear old targets and spawn new ones matching difficulty if game is initialized
+            if(scene) {
+                targets.forEach(t => scene.remove(t));
+                targets = [];
+                for (let i = 0; i < maxTargets; i++) spawnTarget();
+            }
+        }
+
+        // --- Fullscreen Logic ---
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    alert(`Error enabling fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // --- Game Controls ---
+        function startGame() {
             document.body.requestPointerLock();
-        });
+        }
 
         document.addEventListener('pointerlockchange', () => {
             if (document.pointerLockElement === document.body) {
@@ -121,6 +220,7 @@
             camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
         });
 
+        // --- Core Engine Setup ---
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x111116);
@@ -128,14 +228,12 @@
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 1.6, 0);
 
-            // OPTIMIZATION: antialias set to false, precision set to mediump
+            // Celeron Optimization settings
             renderer = new THREE.WebGLRenderer({ antialias: false, precision: "mediump" });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            // OPTIMIZATION: Forces pixel ratio to 1 even on high-res displays to prevent lag
             renderer.setPixelRatio(1); 
             document.body.appendChild(renderer.domElement);
 
-            // Simple lighting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
 
@@ -143,7 +241,6 @@
             dirLight.position.set(5, 10, 5);
             scene.add(dirLight);
 
-            // OPTIMIZATION: Using MeshLambertMaterial instead of MeshStandardMaterial
             const floorGeo = new THREE.PlaneGeometry(50, 50);
             const floorMat = new THREE.MeshLambertMaterial({ color: 0x222225 });
             const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -155,6 +252,7 @@
             frontWall.position.set(0, 12.5, -20);
             scene.add(frontWall);
 
+            // Initialize targets
             for (let i = 0; i < maxTargets; i++) {
                 spawnTarget();
             }
@@ -166,9 +264,10 @@
         }
 
         function spawnTarget() {
-            const radius = 0.6 + Math.random() * 0.4;
+            const config = diffSettings[currentDifficulty];
+            // Setup target scale based on configuration chosen
+            const radius = config.sizeMin + Math.random() * (config.sizeMax - config.sizeMin);
             
-            // OPTIMIZATION: Lowered segments from 32 to 12 to reduce polygons significantly
             const geometry = new THREE.SphereGeometry(radius, 12, 12);
             const material = new THREE.MeshLambertMaterial({ color: 0xff0055 });
             const target = new THREE.Mesh(geometry, material);
@@ -196,9 +295,12 @@
                 scene.remove(hitTarget);
                 targets = targets.filter(t => t !== hitTarget);
 
-                score += 100;
+                // Harder targets yield slightly more points!
+                if(currentDifficulty === 'easy') score += 50;
+                if(currentDifficulty === 'normal') score += 100;
+                if(currentDifficulty === 'hard') score += 250;
+                
                 scoreDisplay.innerText = score;
-
                 spawnTarget();
             }
         }
@@ -212,10 +314,11 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // Kept simple target movement, minimal impact on CPU
-            const time = Date.now() * 0.003;
+            const config = diffSettings[currentDifficulty];
+            const time = Date.now() * (config.speed * 10); // Speed scales up with difficulty
+            
             targets.forEach((target, index) => {
-                target.position.y += Math.sin(time + index) * 0.004;
+                target.position.y += Math.sin(time + index) * (config.speed * 1.5);
             });
 
             renderer.render(scene, camera);
