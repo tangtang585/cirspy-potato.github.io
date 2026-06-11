@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Aim Trainer (Advanced Low-Spec)</title>
+    <title>3D Aim Trainer (WASD Movement)</title>
     <style>
         body {
             margin: 0;
@@ -73,7 +73,6 @@
 
         h1 { margin-top: 0; color: #00ffcc; letter-spacing: 2px; }
         
-        /* Interactive Buttons */
         .btn {
             background: #242629;
             color: white;
@@ -103,7 +102,6 @@
             background: #00ccaa;
         }
         
-        /* Active Difficulty Highlight */
         .active-diff {
             background: #ff0055 !important;
             border-color: #ff0055 !important;
@@ -143,7 +141,9 @@
             </div>
 
             <button class="btn btn-start" onclick="startGame()">CLICK TO PLAY</button>
-            <p style="font-size: 12px; color: #666; margin-top: 15px;">Press ESC to pause/change settings</p>
+            <p style="font-size: 13px; color: #aaa; margin-top: 15px;">
+                <b>WASD</b> to Move | <b>Mouse</b> to Look | <b>ESC</b> to Pause
+            </p>
         </div>
     </div>
 
@@ -151,11 +151,17 @@
         let scene, camera, renderer;
         let targets = [];
         let score = 0;
-        const maxTargets = 4;
+        const maxTargets = 5; // Bumped up slightly for movement tracking
         
+        // Camera Look variables
         let yaw = 0;
         let pitch = 0;
         const mouseSensitivity = 0.002;
+
+        // Movement variables
+        const moveState = { forward: false, backward: false, left: false, right: false };
+        const moveSpeed = 0.12; 
+        const playerRadius = 1.0; 
 
         // Difficulty Configurations
         const diffSettings = {
@@ -169,16 +175,13 @@
         const diffDisplay = document.getElementById('current-diff');
         const blocker = document.getElementById('blocker');
 
-        // --- Difficulty Logic ---
         function setDifficulty(mode) {
             currentDifficulty = mode;
             diffDisplay.innerText = diffSettings[mode].label;
             
-            // Update UI buttons active state
             document.querySelectorAll('.setting-section .btn').forEach(b => b.classList.remove('active-diff'));
             document.getElementById(`btn-${mode}`).classList.add('active-diff');
 
-            // Clear old targets and spawn new ones matching difficulty if game is initialized
             if(scene) {
                 targets.forEach(t => scene.remove(t));
                 targets = [];
@@ -186,30 +189,23 @@
             }
         }
 
-        // --- Fullscreen Logic ---
         function toggleFullscreen() {
             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(err => {
-                    alert(`Error enabling fullscreen: ${err.message}`);
-                });
+                document.documentElement.requestFullscreen().catch(err => { alert(err.message); });
             } else {
                 document.exitFullscreen();
             }
         }
 
-        // --- Game Controls ---
         function startGame() {
             document.body.requestPointerLock();
         }
 
         document.addEventListener('pointerlockchange', () => {
-            if (document.pointerLockElement === document.body) {
-                blocker.style.display = 'none';
-            } else {
-                blocker.style.display = 'flex';
-            }
+            blocker.style.display = (document.pointerLockElement === document.body) ? 'none' : 'flex';
         });
 
+        // --- Mouse Camera Controls ---
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement !== document.body) return;
 
@@ -220,15 +216,38 @@
             camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
         });
 
-        // --- Core Engine Setup ---
+        // --- Keyboard Movement Listeners ---
+        const onKeyDown = (e) => {
+            if (document.pointerLockElement !== document.body) return;
+            switch (e.code) {
+                case 'KeyW': case 'ArrowUp':    moveState.forward = true; break;
+                case 'KeyA': case 'ArrowLeft':  moveState.left = true; break;
+                case 'KeyS': case 'ArrowDown':  moveState.backward = true; break;
+                case 'KeyD': case 'ArrowRight': moveState.right = true; break;
+            }
+        };
+
+        const onKeyUp = (e) => {
+            switch (e.code) {
+                case 'KeyW': case 'ArrowUp':    moveState.forward = false; break;
+                case 'KeyA': case 'ArrowLeft':  moveState.left = false; break;
+                case 'KeyS': case 'ArrowDown':  moveState.backward = false; break;
+                case 'KeyD': case 'ArrowRight': moveState.right = false; break;
+            }
+        };
+
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+
+        // --- Game Setup ---
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x111116);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, 1.6, 0);
+            // Spawn player in the middle of the back of the arena
+            camera.position.set(0, 1.6, 15); 
 
-            // Celeron Optimization settings
             renderer = new THREE.WebGLRenderer({ antialias: false, precision: "mediump" });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(1); 
@@ -241,18 +260,19 @@
             dirLight.position.set(5, 10, 5);
             scene.add(dirLight);
 
+            // Floor Grid (Boundaries: X: -25 to 25, Z: -25 to 25)
             const floorGeo = new THREE.PlaneGeometry(50, 50);
             const floorMat = new THREE.MeshLambertMaterial({ color: 0x222225 });
             const floor = new THREE.Mesh(floorGeo, floorMat);
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
 
+            // Front wall (where targets spawn)
             const wallMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1f });
             const frontWall = new THREE.Mesh(new THREE.PlaneGeometry(50, 25), wallMat);
-            frontWall.position.set(0, 12.5, -20);
+            frontWall.position.set(0, 12.5, -25);
             scene.add(frontWall);
 
-            // Initialize targets
             for (let i = 0; i < maxTargets; i++) {
                 spawnTarget();
             }
@@ -265,20 +285,54 @@
 
         function spawnTarget() {
             const config = diffSettings[currentDifficulty];
-            // Setup target scale based on configuration chosen
             const radius = config.sizeMin + Math.random() * (config.sizeMax - config.sizeMin);
             
             const geometry = new THREE.SphereGeometry(radius, 12, 12);
             const material = new THREE.MeshLambertMaterial({ color: 0xff0055 });
             const target = new THREE.Mesh(geometry, material);
 
-            const x = (Math.random() - 0.5) * 24;
-            const y = 1 + Math.random() * 7;
-            const z = -16 - Math.random() * 3;
+            const x = (Math.random() - 0.5) * 40; // Wider spawn map for moving players
+            const y = 1 + Math.random() * 8;
+            const z = -15 - Math.random() * 8; // Varied depths
 
             target.position.set(x, y, z);
             scene.add(target);
             targets.push(target);
+        }
+
+        // --- Smooth WASD Processing Engine ---
+        function handleMovement() {
+            if (document.pointerLockElement !== document.body) return;
+
+            // Calculate forward/backward and strafe vectors based on camera direction
+            const forwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const sideVector = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+            // Ground movement only (lock Y axis to eliminate flying)
+            forwardVector.y = 0;
+            sideVector.y = 0;
+            forwardVector.normalize();
+            sideVector.normalize();
+
+            const direction = new THREE.Vector3();
+
+            if (moveState.forward) direction.add(forwardVector);
+            if (moveState.backward) direction.sub(forwardVector);
+            if (moveState.right) direction.add(sideVector);
+            if (moveState.left) direction.sub(sideVector);
+
+            if (direction.lengthSq() > 0) {
+                direction.normalize().multiplyScalar(moveSpeed);
+                camera.position.add(direction);
+            }
+
+            // High-Performance Invisible Map Collisions (Keep player inside 50x50 map)
+            const mapLimit = 24.5; 
+            if (camera.position.x > mapLimit) camera.position.x = mapLimit;
+            if (camera.position.x < -mapLimit) camera.position.x = -mapLimit;
+            if (camera.position.z > mapLimit) camera.position.z = mapLimit;
+            // Prevent walking past the target wall
+            if (camera.position.z < -20) camera.position.z = -20; 
         }
 
         function onShoot() {
@@ -295,7 +349,6 @@
                 scene.remove(hitTarget);
                 targets = targets.filter(t => t !== hitTarget);
 
-                // Harder targets yield slightly more points!
                 if(currentDifficulty === 'easy') score += 50;
                 if(currentDifficulty === 'normal') score += 100;
                 if(currentDifficulty === 'hard') score += 250;
@@ -314,8 +367,12 @@
         function animate() {
             requestAnimationFrame(animate);
             
+            // Process WASD Input smoothly every frame
+            handleMovement();
+            
+            // Floating animation target speed based on difficulty choice
             const config = diffSettings[currentDifficulty];
-            const time = Date.now() * (config.speed * 10); // Speed scales up with difficulty
+            const time = Date.now() * (config.speed * 10);
             
             targets.forEach((target, index) => {
                 target.position.y += Math.sin(time + index) * (config.speed * 1.5);
